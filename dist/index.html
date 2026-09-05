@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Badcase 入库工作流 · 导入解析 → 审核入库</title>
+<script src="data.js"></script>
+<style>
+:root{--bg:#f5f7fa;--card:#fff;--line:#e4e7ed;--text:#1f2329;--sub:#8a919f;
+--green:#67c23a;--greenbg:#f0f9eb;--blue:#409eff;--bluebg:#ecf5ff;
+--orange:#e6a23c;--orangebg:#fdf6ec;--red:#f56c6c;--redbg:#fef0f0;--purple:#7c5cff}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;
+background:var(--bg);color:var(--text);line-height:1.6;padding:22px}
+.wrap{max-width:1300px;margin:0 auto}
+.hero{background:linear-gradient(120deg,#5b7cfa,#7c5cff);color:#fff;border-radius:14px;
+padding:24px 28px;margin-bottom:18px;box-shadow:0 6px 20px rgba(90,110,220,.22)}
+.hero h1{font-size:22px;margin-bottom:5px}
+.hero p{opacity:.93;font-size:13.5px}
+.hero .pain{margin-top:11px;background:rgba(255,255,255,.16);border-radius:8px;padding:9px 13px;font-size:12.5px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin-bottom:16px}
+.card h2{font-size:15.5px;margin-bottom:13px;display:flex;align-items:center;gap:8px}
+.card h2 .dot{width:8px;height:8px;border-radius:50%;background:var(--purple)}
+.card h2 .sn{background:var(--purple);color:#fff;font-size:11px;padding:1px 8px;border-radius:9px}
+
+/* steps */
+.steps{display:flex;gap:0;overflow-x:auto;padding:3px 0;margin-bottom:16px}
+.stp{flex:1;min-width:132px;border:1px solid var(--line);border-radius:9px;padding:10px 11px;
+background:#fafbfc;position:relative;transition:.3s}
+.stp.active{background:var(--bluebg);border-color:var(--blue);box-shadow:0 0 0 3px rgba(64,158,255,.13)}
+.stp.done{background:var(--greenbg);border-color:var(--green)}
+.stp .t{font-size:12.5px;font-weight:600}
+.stp .d{font-size:11px;color:var(--sub);line-height:1.45;margin-top:2px}
+.stp .bg{position:absolute;top:-8px;right:8px;font-size:10px;padding:1px 6px;border-radius:8px;
+background:var(--green);color:#fff;opacity:0;transition:.3s}
+.stp.done .bg{opacity:1}
+.ar{display:flex;align-items:center;color:#c0c4cc;padding:0 6px;font-size:13px}
+
+/* import */
+.tabs{display:flex;gap:7px;margin-bottom:12px}
+.tab{border:1px solid var(--line);background:#fff;border-radius:8px 8px 0 0;padding:7px 15px;
+font-size:13px;cursor:pointer;border-bottom:2px solid transparent}
+.tab.on{border-bottom-color:var(--purple);color:var(--purple);font-weight:600}
+.drop{border:2px dashed var(--line);border-radius:10px;padding:26px;text-align:center;
+background:#fafbfc;transition:.2s;cursor:pointer}
+.drop:hover,.drop.over{border-color:var(--purple);background:#f8f6ff}
+.drop .ic{font-size:30px;margin-bottom:6px}
+.drop .m{font-size:13.5px;font-weight:600}
+.drop .s{font-size:12px;color:var(--sub);margin-top:4px}
+.pane{display:none}.pane.on{display:block}
+input[type=text]{width:100%;border:1px solid var(--line);border-radius:8px;padding:9px 12px;
+font-size:13px;font-family:inherit}
+input[type=text]:focus{outline:none;border-color:var(--purple)}
+.files{display:flex;gap:8px;flex-wrap:wrap;margin-top:11px}
+.fchip{border:1px solid var(--line);background:#fff;border-radius:8px;padding:7px 13px;
+font-size:12.5px;cursor:pointer;transition:.18s}
+.fchip:hover{border-color:var(--purple);color:var(--purple)}
+.fchip.sel{background:var(--purple);color:#fff;border-color:var(--purple)}
+.fchip .z{font-size:11px;opacity:.75}
+
+button{border:none;border-radius:8px;padding:9px 18px;font-size:13.5px;cursor:pointer;font-family:inherit;transition:.2s}
+.primary{background:var(--purple);color:#fff}
+.primary:hover{filter:brightness(1.08)}
+.primary:disabled{background:#c8c9cc;cursor:not-allowed}
+.ghost{background:#fff;border:1px solid var(--line);color:var(--text)}
+.ghost:hover{border-color:var(--purple);color:var(--purple)}
+.btnrow{display:flex;gap:9px;align-items:center;margin-top:13px;flex-wrap:wrap}
+
+.log{margin-top:12px;background:#1e2229;color:#b9c0cc;border-radius:9px;padding:12px 14px;
+font-family:"SF Mono",Menlo,monospace;font-size:11.5px;line-height:1.7;
+max-height:170px;overflow-y:auto;display:none}
+.log.show{display:block}
+.log .ok{color:#7ee787}.log .wn{color:#f0c674}.log .in{color:#79c0ff}
+
+/* schema */
+.sect{display:none}.sect.show{display:block}
+.sgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:11px}
+.sbox{border:1px solid var(--line);border-radius:9px;padding:11px 13px;background:#fafbfc}
+.sbox .h{font-size:11.5px;color:var(--sub);font-weight:600;margin-bottom:5px}
+.sbox .v{font-size:13px;font-weight:600}
+.sbox .dims{margin-top:6px;display:flex;flex-wrap:wrap;gap:4px}
+.sbox.hum{background:var(--greenbg);border-color:#c2e7b0}
+.sbox.llm{background:var(--bluebg);border-color:#b3d8ff}
+.sbox.mac{background:var(--orangebg);border-color:#f5dab1}
+.tag{display:inline-block;padding:1px 7px;border-radius:5px;font-size:11px;margin:1px 2px 1px 0}
+.tg-d{background:#fff;border:1px solid var(--line);color:var(--sub);font-family:monospace}
+.tg-i{background:#f0f2f5;color:var(--sub)}
+.p0{background:var(--redbg);color:var(--red);font-weight:600}
+.p1{background:var(--orangebg);color:var(--orange);font-weight:600}
+.p2{background:var(--bluebg);color:var(--blue);font-weight:600}
+.sg{background:#f2f0ff;color:var(--purple)}
+.cov{background:#f0f2f5;color:var(--sub);font-family:monospace;font-size:10.5px}
+
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:11px;margin-bottom:14px}
+.kpi{border:1px solid var(--line);border-radius:10px;padding:13px 15px;background:#fafbfc}
+.kpi .n{font-size:23px;font-weight:700}.kpi .l{font-size:11.5px;color:var(--sub)}
+.kpi.g .n{color:var(--green)}.kpi.b .n{color:var(--blue)}
+.kpi.o .n{color:var(--orange)}.kpi.p .n{color:var(--purple)}
+
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th{background:#fafbfc;text-align:left;padding:8px 9px;border-bottom:2px solid var(--line);
+font-weight:600;white-space:nowrap;position:sticky;top:0;z-index:2}
+td{padding:8px 9px;border-bottom:1px solid #f0f2f5;vertical-align:top}
+tr:hover td{background:#fafbff}
+.tbw{max-height:420px;overflow:auto;border:1px solid var(--line);border-radius:9px}
+.mono{font-family:"SF Mono",Menlo,monospace;font-size:11.5px}
+.rbtn{border:1px solid var(--line);background:#fff;border-radius:6px;padding:3px 9px;font-size:11.5px;cursor:pointer}
+.rbtn:hover{border-color:var(--purple);color:var(--purple)}
+.st-w{color:var(--orange)}.st-o{color:var(--green);font-weight:600}.st-n{color:var(--red);font-weight:600}
+.filters{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:11px}
+.chip{border:1px solid var(--line);background:#fff;border-radius:15px;padding:4px 12px;font-size:12px;cursor:pointer}
+.chip:hover{border-color:var(--purple)}
+.chip.sel{background:var(--purple);color:#fff;border-color:var(--purple)}
+
+.detail{display:none;background:#fafbfc;border:1px solid var(--line);border-radius:10px;padding:15px 17px;margin-top:13px}
+.detail.show{display:block}
+.dg{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:11px}
+.db{background:#fff;border:1px solid var(--line);border-radius:8px;padding:10px 12px}
+.db .h{font-size:11px;color:var(--sub);margin-bottom:5px;font-weight:600}
+.db .c{font-size:12.5px;white-space:pre-wrap;line-height:1.6;max-height:165px;overflow-y:auto}
+.db.req{background:var(--bluebg);border-color:#b3d8ff}
+.db.ev{background:var(--orangebg);border-color:#f5dab1}
+.acts{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+.okb{background:var(--green);color:#fff}.nob{background:var(--red);color:#fff}
+select{border:1px solid var(--line);border-radius:7px;padding:7px 10px;font-size:12.5px;font-family:inherit}
+
+.dblib{display:grid;grid-template-columns:1fr 1fr;gap:13px}
+.lib{border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+.lib.big{background:var(--bluebg);border-color:#b3d8ff}
+.lib.small{background:var(--greenbg);border-color:#c2e7b0}
+.lib .t{font-size:13.5px;font-weight:700;margin-bottom:4px}
+.lib .n{font-size:26px;font-weight:700;margin:5px 0}
+.lib.big .n{color:var(--blue)}.lib.small .n{color:var(--green)}
+.lib .d{font-size:11.5px;color:var(--sub);line-height:1.55}
+.link{color:var(--purple);text-decoration:none;font-weight:600}
+.link:hover{text-decoration:underline}
+.note{font-size:12px;color:var(--sub);line-height:1.65;margin-top:10px}
+.banner{background:var(--greenbg);border:1px solid #c2e7b0;border-radius:9px;padding:11px 14px;
+font-size:12.5px;margin-top:12px;display:none}
+.banner.show{display:block}
+@media(max-width:900px){.dg,.dblib{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<div class="hero">
+  <h1>Badcase 入库工作流 · 导入解析 → 对齐判定 → 审核入库</h1>
+  <p>导入任意格式的打分文件（CSV / XLSX / 企微表格链接）→ 自动识别评分维度 → 判定 badcase → 先入大库 → 人工采纳后入精选小库</p>
+  <div class="pain">
+    <b>替代的日常繁琐工作：</b>评测跑完后人工要翻遍散落的打分文件，逐条比对人工分/LLM分/机检结果，
+    判断哪些算 badcase、为什么、怎么改，再手工整理录入表格 —— 每轮都要重来。
+  </div>
+</div>
+
+<div class="card">
+  <h2><span class="dot"></span>六步流程</h2>
+  <div class="steps" id="steps"></div>
+</div>
+
+<div class="card">
+  <h2><span class="sn">STEP 1</span>导入打分文件</h2>
+  <div class="tabs">
+    <div class="tab on" data-p="file">本地文件（CSV / XLSX）</div>
+    <div class="tab" data-p="link">企微表格链接</div>
+  </div>
+  <div class="pane on" id="p-file">
+    <div class="drop" id="drop">
+      <div class="ic">📄</div>
+      <div class="m">点击选择或拖入打分文件</div>
+      <div class="s">支持 .csv / .xlsx —— 列名无需统一，系统自动识别评分维度</div>
+    </div>
+    <div class="note">演示可直接选用下列真实样例（列名故意不同，验证自动识别能力）：</div>
+    <div class="files" id="files"></div>
+  </div>
+  <div class="pane" id="p-link">
+    <input type="text" id="linkin" placeholder="粘贴你有管理权限的企微在线表格链接，如 https://doc.weixin.qq.com/sheet/xxx">
+    <div class="note">系统会读取该表格内容并做同样的自动解析（需机器人对该文档有读取权限）。</div>
+  </div>
+  <div class="btnrow">
+    <button class="primary" id="run">▶ 开始解析并运行工作流</button>
+    <button class="ghost" id="reset">重置</button>
+    <span class="note" id="pick" style="margin:0"></span>
+  </div>
+  <div class="log" id="log"></div>
+</div>
+
+<div class="card sect" id="sec-schema">
+  <h2><span class="sn">STEP 2</span>解析结果 · 自动识别的评分维度与打分信息</h2>
+  <div class="sgrid" id="schema"></div>
+  <div class="note" id="schnote"></div>
+</div>
+
+<div class="card sect" id="sec-align">
+  <h2><span class="sn">STEP 3-4</span>对齐与判定</h2>
+  <div class="kpis" id="kpis"></div>
+  <div class="note" id="alnote"></div>
+</div>
+
+<div class="card sect" id="sec-lib">
+  <h2><span class="sn">STEP 5-6</span>双库：大库自动入库 · 小库人工精选</h2>
+  <div class="dblib">
+    <div class="lib big">
+      <div class="t">📦 大库（全量筛出）</div>
+      <div class="n" id="bign">0</div>
+      <div class="d">判定命中的 badcase <b>全部自动写入</b>，作为问题全景与追溯底账。<br>
+      固定维护同一份企微文档子表，<b>只更新不新建</b>。</div>
+    </div>
+    <div class="lib small">
+      <div class="t">⭐ 小库（精选 badcase）</div>
+      <div class="n" id="smalln">0</div>
+      <div class="d">仅人工<b>审核采纳</b>后写入，用于 Few-shot / Golden 数据集。<br>
+      这是真正会反哺模型与量表的高价值集合。</div>
+    </div>
+  </div>
+  <div class="banner" id="banner"></div>
+</div>
+
+<div class="card sect" id="sec-review">
+  <h2><span class="sn">STEP 6</span>人工审核（大库 → 小库）</h2>
+  <div class="filters" id="filters"></div>
+  <div class="tbw">
+    <table>
+      <thead><tr>
+        <th>case_id</th><th>场景</th><th>严重度</th><th>触发信号</th><th>覆盖</th>
+        <th>人工</th><th>LLM</th><th>机检</th><th>建议动作</th><th>审核状态</th><th></th>
+      </tr></thead>
+      <tbody id="tb"></tbody>
+    </table>
+  </div>
+  <div class="detail" id="detail"></div>
+</div>
+
+</div>
+
+<script>
+const D=window.PIPE_DATA, SC=D.schema, BAD=D.badcases, WC=D.wecom||{};
+const SAMPLES=[
+  {n:'打分结果_维度分列.csv',z:'60 行 × 17 列 · 维度拆成独立列 · 列名口语化'},
+  {n:'打分结果_数组式.xlsx',z:'40 行 × 8 列 · 打分为 [8,8,9,7,8] 数组式'}
+];
+let picked=SAMPLES[0].n, reviews={}, ran=false;
+
+/* steps */
+const STEPS=[
+  {t:'① 导入',d:'CSV / XLSX / 企微链接'},
+  {t:'② 解析',d:'自动识别维度与打分方'},
+  {t:'③ 对齐',d:'按 case_id 归并多方打分'},
+  {t:'④ 判定',d:'多信号识别 badcase'},
+  {t:'⑤ 入大库',d:'全量筛出结果自动写入'},
+  {t:'⑥ 人工审核',d:'采纳后入精选小库'}
+];
+const sb=document.getElementById('steps');
+STEPS.forEach((s,i)=>{
+  if(i) sb.insertAdjacentHTML('beforeend','<div class="ar">▶</div>');
+  sb.insertAdjacentHTML('beforeend',
+    `<div class="stp" id="sp${i}"><span class="bg">✓</span>
+     <div class="t">${s.t}</div><div class="d">${s.d}</div></div>`);
+});
+
+/* tabs */
+document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
+  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('on'));
+  document.querySelectorAll('.pane').forEach(x=>x.classList.remove('on'));
+  t.classList.add('on');
+  document.getElementById('p-'+t.dataset.p).classList.add('on');
+});
+
+/* sample files */
+const fb=document.getElementById('files');
+function drawFiles(){
+  fb.innerHTML='';
+  SAMPLES.forEach(s=>fb.insertAdjacentHTML('beforeend',
+    `<div class="fchip ${picked===s.n?'sel':''}" data-n="${s.n}">${s.n}
+     <div class="z">${s.z}</div></div>`));
+  fb.querySelectorAll('.fchip').forEach(c=>c.onclick=()=>{
+    picked=c.dataset.n; drawFiles();
+    document.getElementById('pick').textContent='已选择：'+picked;
+  });
+}
+drawFiles();
+const drop=document.getElementById('drop');
+drop.onclick=()=>{
+  const i=document.createElement('input'); i.type='file'; i.accept='.csv,.xlsx';
+  i.onchange=()=>{ if(i.files[0]){ picked=i.files[0].name;
+    document.getElementById('pick').textContent='已选择：'+picked+'（演示模式将使用内置解析结果）'; } };
+  i.click();
+};
+['dragover','dragleave','drop'].forEach(e=>drop.addEventListener(e,ev=>{
+  ev.preventDefault();
+  drop.classList.toggle('over',e==='dragover');
+  if(e==='drop'&&ev.dataTransfer.files[0]){ picked=ev.dataTransfer.files[0].name;
+    document.getElementById('pick').textContent='已选择：'+picked; }
+}));
+
+/* schema render */
+function drawSchema(){
+  const box=document.getElementById('schema'); box.innerHTML='';
+  const add=(cls,h,v,dims)=>box.insertAdjacentHTML('beforeend',
+    `<div class="sbox ${cls}"><div class="h">${h}</div><div class="v">${v}</div>
+     ${dims?`<div class="dims">${dims.map(d=>`<span class="tag tg-d">${d}</span>`).join('')}</div>`:''}</div>`);
+  add('','用例 ID 列',SC.id_col||'未识别');
+  add('','场景列',SC.scene_col||'未识别');
+  const cls={'人工':'hum','LLM':'llm','机检':'mac'};
+  (SC.score_sides||[]).forEach(s=>add(cls[s]||'',s+' 打分方',
+    (SC.dims_by_side[s]||[]).length+' 个维度',SC.dims_by_side[s]));
+  add('','文本列',['上一轮','用户要求','本轮输出'].filter((_,i)=>
+    [SC.text_cols.prev,SC.text_cols.req,(SC.text_cols.cur||[])[0]][i]).join(' / ')||'未识别',
+    [SC.text_cols.prev,SC.text_cols.req,...(SC.text_cols.cur||[])].filter(Boolean));
+  if((SC.ignored_cols||[]).length)
+    add('','已忽略列',SC.ignored_cols.length+' 列',SC.ignored_cols);
+  document.getElementById('schnote').innerHTML=
+    `✅ 共 <b>${SC.columns}</b> 列、解析出 <b>${SC.rows_parsed}</b> 行有效打分记录，识别到 `
+    +`<b>${(SC.score_sides||[]).length}</b> 个打分方。<b>列名无需统一</b>——`
+    +`本次样例把维度命名为「专家-格式分 / 模型打分-D1 / 规则校验得分」等，系统仍全部正确归类。`;
+}
+
+/* align + judge */
+function drawAlign(){
+  const cov=D.coverage||{}, k=document.getElementById('kpis'); k.innerHTML='';
+  const sev={}, sig={};
+  BAD.forEach(b=>{ sev[b.severity]=(sev[b.severity]||0)+1;
+    b.signals.forEach(s=>sig[s]=(sig[s]||0)+1); });
+  const add=(c,n,l)=>k.insertAdjacentHTML('beforeend',
+    `<div class="kpi ${c}"><div class="n">${n}</div><div class="l">${l}</div></div>`);
+  add('b',D.aligned,'对齐用例数');
+  add('o',BAD.length,'判定为 Badcase');
+  add('p',(BAD.length/D.aligned*100).toFixed(1)+'%','筛出率');
+  Object.keys(sev).sort().forEach(s=>add(s==='P0'?'o':'b',sev[s],s+' 级'));
+  document.getElementById('alnote').innerHTML=
+    '<b>打分覆盖分布：</b>'+Object.entries(cov).map(([a,b])=>
+      `<span class="tag cov">${a}</span> ${b} 条`).join('　')
+    +'<br><b>触发信号：</b>'+Object.entries(sig).map(([a,b])=>
+      `<span class="tag sg">${a}</span> ${b}`).join('　')
+    +'<br><span style="color:#8a919f">真实数据中三方打分覆盖往往不均（人工标注最稀疏），'
+    +'工作流按「有哪路用哪路」判定，不因缺列失败。<br><b>注：</b>本演示样例特意选取了 B 侧低分数据以便展示效果，故筛出率偏高；真实全量数据下筛出率约 7%。</span>';
+}
+
+/* review table */
+function chips(){
+  const f=document.getElementById('filters'); f.innerHTML='';
+  const sev=[...new Set(BAD.map(b=>b.severity))].sort();
+  const scn=[...new Set(BAD.map(b=>b.scene))];
+  const add=(k,v,l)=>f.insertAdjacentHTML('beforeend',
+    `<div class="chip ${flt[k]===v?'sel':''}" data-k="${k}" data-v="${v}">${l}</div>`);
+  add('sev','全部','全部严重度'); sev.forEach(s=>add('sev',s,s));
+  add('scene','全部','全部场景'); scn.forEach(s=>add('scene',s,s));
+  add('st','全部','全部状态'); ['待审核','已采纳','已驳回'].forEach(s=>add('st',s,s));
+  f.querySelectorAll('.chip').forEach(c=>c.onclick=()=>{
+    flt[c.dataset.k]=c.dataset.v; chips(); drawTable(); });
+}
+let flt={sev:'全部',scene:'全部',st:'全部'};
+function stName(i){ return reviews[i]==='ok'?'已采纳':reviews[i]==='no'?'已驳回':'待审核'; }
+function drawTable(){
+  const tb=document.getElementById('tb'); tb.innerHTML='';
+  BAD.forEach((r,i)=>{
+    if(flt.sev!=='全部'&&r.severity!==flt.sev) return;
+    if(flt.scene!=='全部'&&r.scene!==flt.scene) return;
+    if(flt.st!=='全部'&&stName(i)!==flt.st) return;
+    const s=reviews[i];
+    const st=s==='ok'?'<span class="st-o">已采纳→小库</span>'
+      :s==='no'?'<span class="st-n">已驳回</span>':'<span class="st-w">待审核</span>';
+    tb.insertAdjacentHTML('beforeend',`<tr>
+      <td class="mono">${r.case_id}</td><td>${r.scene}</td>
+      <td><span class="tag ${r.severity.toLowerCase()}">${r.severity}</span></td>
+      <td>${r.signals.map(x=>`<span class="tag sg">${x}</span>`).join('')}</td>
+      <td><span class="tag cov">${r.coverage}</span></td>
+      <td>${r.human_avg??'-'}</td><td>${r.llm_avg??'-'}</td><td>${r.mach_avg??'-'}</td>
+      <td>${r.action}</td><td>${st}</td>
+      <td><button class="rbtn" data-i="${i}">审核</button></td></tr>`);
+  });
+  tb.querySelectorAll('.rbtn').forEach(b=>b.onclick=()=>showDetail(+b.dataset.i));
+  document.getElementById('smalln').textContent=
+    Object.values(reviews).filter(v=>v==='ok').length;
+}
+function esc(s){return String(s||'').replace(/[<>]/g,c=>({'<':'&lt;','>':'&gt;'}[c]));}
+function showDetail(i){
+  const r=BAD[i], d=document.getElementById('detail');
+  d.className='detail show';
+  d.innerHTML=`
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+      <b class="mono">${r.case_id} · ${r.scene}</b>
+      <span><span class="tag ${r.severity.toLowerCase()}">${r.severity}</span>
+      <span class="tag sg">${r.action}</span>
+      <span class="tag cov">${r.coverage}</span></span>
+    </div>
+    <div class="db ev" style="margin-top:10px">
+      <div class="h">判定依据（自动生成 · 人工无需再翻原始打分文件）</div>
+      <div class="c">${r.evidence.join('\n')}</div>
+    </div>
+    <div class="dg">
+      <div class="db"><div class="h">上一轮输出</div><div class="c">${esc(r.prev_output)}</div></div>
+      <div class="db req"><div class="h">用户本轮要求</div><div class="c">${esc(r.user_req)}</div></div>
+    </div>
+    <div class="db" style="margin-top:11px">
+      <div class="h">本轮输出</div><div class="c">${esc(r.cur_output)}</div>
+    </div>
+    <div class="acts">
+      <select id="use">
+        <option>补 Few-shot</option><option>入 Golden 金标准</option>
+        <option>修正 Judge 量表</option><option>Prompt 格式约束</option>
+      </select>
+      <button class="okb" onclick="mark(${i},'ok')">✓ 采纳 → 写入精选小库</button>
+      <button class="nob" onclick="mark(${i},'no')">✕ 驳回（仅留大库）</button>
+    </div>`;
+  d.scrollIntoView({behavior:'smooth',block:'nearest'});
+}
+window.mark=(i,v)=>{
+  reviews[i]=v; drawTable(); chips();
+  const ok=Object.values(reviews).filter(x=>x==='ok').length;
+  const done=Object.keys(reviews).length;
+  const b=document.getElementById('banner'); b.className='banner show';
+  b.innerHTML=`已审核 <b>${done}</b> / ${BAD.length} 条，其中采纳 <b>${ok}</b> 条写入精选小库。
+    <a class="link" href="${WC.url}" target="_blank">打开企微表格查看双库 →</a>
+    <br><span style="color:#8a919f">大库「${WC.big}」保留全部筛出结果；小库「${WC.small}」只收采纳项。同一文档持续维护，不新建链接。</span>`;
+};
+
+/* run */
+const LOGS=[
+  ['in','$ 读取打分文件…'],
+  ['ok','✓ 解析成功：'+SC.columns+' 列 / '+SC.rows_parsed+' 行有效记录'],
+  ['in','$ 自动识别列语义（不依赖固定列名）…'],
+  ['ok','✓ ID 列「'+(SC.id_col||'-')+'」· 场景列「'+(SC.scene_col||'-')+'」'],
+  ['ok','✓ 识别打分方：'+(SC.score_sides||[]).join(' / ')],
+  ['wn','! 忽略无关列：'+((SC.ignored_cols||[]).join('、')||'无')],
+  ['in','$ 按 case_id 对齐多方打分…'],
+  ['ok','✓ 对齐 '+D.aligned+' 条用例，覆盖分布 '+JSON.stringify(D.coverage)],
+  ['in','$ 执行多信号 badcase 判定…'],
+  ['ok','✓ 命中 '+BAD.length+' 条 badcase'],
+  ['in','$ 写入大库（企微表格子表「'+(WC.big||'')+'"）…'],
+  ['ok','✓ rows 0-9 errcode=0 ok'],
+  ['ok','✓ rows 10-19 errcode=0 ok'],
+  ['ok','✓ rows 20-29 errcode=0 ok'],
+  ['ok','✓ rows 30-40 errcode=0 ok'],
+  ['ok','✓ 大库写入完成（维护同一文档，未新建链接）'],
+  ['in','$ 等待人工审核 → 采纳项写入小库…']
+];
+const MAP=[0,1,1,1,1,1,2,2,3,3,4,4,4,4,4,4,5];
+document.getElementById('run').onclick=()=>{
+  if(ran) return; ran=true;
+  const btn=document.getElementById('run'); btn.disabled=true; btn.textContent='运行中…';
+  const log=document.getElementById('log'); log.className='log show'; log.innerHTML='';
+  let n=0;
+  const tick=()=>{
+    if(n>=LOGS.length){
+      document.getElementById('sp5').className='stp active';
+      ['sec-schema','sec-align','sec-lib','sec-review'].forEach(id=>
+        document.getElementById(id).classList.add('show'));
+      document.getElementById('bign').textContent=BAD.length;
+      btn.disabled=false; btn.textContent='▶ 重新运行'; ran=false;
+      document.getElementById('sec-schema').scrollIntoView({behavior:'smooth',block:'start'});
+      return;
+    }
+    const [c,t]=LOGS[n];
+    log.insertAdjacentHTML('beforeend',`<div class="${c}">${t}</div>`);
+    log.scrollTop=log.scrollHeight;
+    const si=MAP[n];
+    for(let i=0;i<si;i++) document.getElementById('sp'+i).className='stp done';
+    document.getElementById('sp'+si).className='stp active';
+    if(si>=1) drawSchema();
+    if(si>=2) drawAlign();
+    n++; setTimeout(tick,t.startsWith('$')?400:280);
+  };
+  tick();
+};
+document.getElementById('reset').onclick=()=>{
+  STEPS.forEach((_,i)=>document.getElementById('sp'+i).className='stp');
+  document.getElementById('log').className='log';
+  ['sec-schema','sec-align','sec-lib','sec-review'].forEach(id=>
+    document.getElementById(id).classList.remove('show'));
+  document.getElementById('detail').className='detail';
+  document.getElementById('banner').className='banner';
+  reviews={}; flt={sev:'全部',scene:'全部',st:'全部'};
+  document.getElementById('smalln').textContent='0';
+  document.getElementById('bign').textContent='0';
+  ran=false;
+};
+chips(); drawTable();
+</script>
+</body>
+</html>

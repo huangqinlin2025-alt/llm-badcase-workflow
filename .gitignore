@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Runtime data and secrets
+.env
+.env.*
+!.env.example
+*.db
+*.sqlite
+*.sqlite3
+runtime/
+artifacts/
+
+# OS and editor
+.DS_Store
+.idea/
+.vscode/
+
+# CodeBuddy project metadata and local learning logs
+.codebuddy/
+.learnings/
