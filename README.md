@@ -72,6 +72,30 @@ python accept_to_small.py 全能帮写#101 全能帮写#102
 python accept_to_small.py --demo 3
 ```
 
+## API 主体框架（开发中）
+
+ARC-001 已建立 FastAPI 服务骨架与健康检查；导入、SQLite、企微同步和审核 API 将在后续规格任务中接入。
+
+```bash
+PY=/Users/huagnqinlin/.workbuddy/binaries/python/versions/3.13.12/bin/python3
+$PY -m pip install -e '.[dev]'
+$PY -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+# 浏览器或 curl 访问：http://127.0.0.1:8000/healthz
+```
+
+当前已支持真实本地文件导入。每个文件都必须提供显式 `side` 和 `evaluation_version`；文件会被解析并生成持久化报告，但尚未执行多文件合并、badcase 判定或企微写入。
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/import-batches \
+  -H 'Idempotency-Key: local-import-0001' \
+  -F 'project_id=default' \
+  -F 'sides=B' \
+  -F 'evaluation_versions=eval-v1' \
+  -F 'files=@samples/打分结果_维度分列.csv'
+```
+
+请将 `.env.example` 复制为本地 `.env` 后再填入后续企微配置；不要提交真实令牌、文档 ID、SQLite 数据库或用户数据。
+
 ## 文件说明
 
 | 文件 | 作用 |
