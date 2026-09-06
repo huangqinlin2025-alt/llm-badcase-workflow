@@ -82,6 +82,7 @@ class ImportService:
                     source.filename,
                     source.side.strip(),
                     source.evaluation_version.strip(),
+                    source.profile.strip(),
                     sha256(source.content).hexdigest(),
                 )
             )

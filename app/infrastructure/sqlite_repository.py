@@ -7,6 +7,7 @@ import sqlite3
 from typing import Iterator, Sequence
 
 from app.domain.errors import ConcurrencyConflict, DuplicateRequest
+from app.domain.merge import NewAlignedCase, PersistedSourceFile
 from app.domain.models import (
     CandidateSnapshot,
     NewAuditEvent,
@@ -18,7 +19,7 @@ from app.domain.models import (
     NewSourceFile,
     OutboxSnapshot,
 )
-from app.domain.status import OutboxState, ReviewStatus
+from app.domain.status import ImportBatchStatus, OutboxState, ReviewStatus
 from app.infrastructure.migrations import MigrationRunner
 
 
@@ -134,6 +135,85 @@ class SqliteWorkflowRepository:
         except sqlite3.IntegrityError as error:
             self._raise_duplicate_request(error)
 
+    def list_source_files(self, batch_id: str) -> list[PersistedSourceFile]:
+        with self._read_connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, batch_id, side, evaluation_version, storage_path, original_name, schema_json
+                FROM source_files
+                WHERE batch_id = ?
+                ORDER BY created_at, id
+                """,
+                (batch_id,),
+            ).fetchall()
+        return [
+            PersistedSourceFile(
+                id=row["id"],
+                batch_id=row["batch_id"],
+                side=row["side"],
+                evaluation_version=row["evaluation_version"],
+                storage_path=row["storage_path"],
+                original_name=row["original_name"],
+                schema=json.loads(row["schema_json"]),
+            )
+            for row in rows
+        ]
+
+    def replace_aligned_cases(
+        self,
+        *,
+        batch_id: str,
+        aligned_cases: Sequence[NewAlignedCase],
+        issues: Sequence[NewParseIssue],
+        status: ImportBatchStatus,
+    ) -> None:
+        if status not in {ImportBatchStatus.ALIGNED, ImportBatchStatus.PARTIAL_FAILURE}:
+            raise ValueError("merge status must be ALIGNED or PARTIAL_FAILURE")
+        now = _utc_now()
+        with self._transaction() as connection:
+            if connection.execute(
+                "SELECT 1 FROM import_batches WHERE id = ?", (batch_id,)
+            ).fetchone() is None:
+                raise LookupError("import batch not found")
+            connection.execute("DELETE FROM aligned_cases WHERE batch_id = ?", (batch_id,))
+            connection.execute(
+                "DELETE FROM parse_issues WHERE batch_id = ? AND code LIKE 'MERGE_%'", (batch_id,)
+            )
+            for aligned in aligned_cases:
+                if aligned.batch_id != batch_id:
+                    raise ValueError("aligned case must belong to the import batch")
+                connection.execute(
+                    """
+                    INSERT INTO aligned_cases(
+                        id, batch_id, case_id, side, evaluation_version, payload_json, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        aligned.id,
+                        aligned.batch_id,
+                        aligned.case_id,
+                        aligned.side,
+                        aligned.evaluation_version,
+                        _json(aligned.payload),
+                        now,
+                        now,
+                    ),
+                )
+            for issue in issues:
+                if issue.batch_id != batch_id or not issue.code.startswith("MERGE_"):
+                    raise ValueError("merge issue must belong to the batch and use a MERGE_ code")
+                connection.execute(
+                    """
+                    INSERT INTO parse_issues(id, batch_id, file_id, row_no, code, detail, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (issue.id, issue.batch_id, issue.file_id, issue.row_no, issue.code, issue.detail, now),
+                )
+            connection.execute(
+                "UPDATE import_batches SET status = ?, updated_at = ? WHERE id = ?",
+                (status.value, now, batch_id),
+            )
+
     def get_import_batch_by_idempotency(
         self, project_id: str, idempotency_key: str
     ) -> dict[str, str] | None:
@@ -178,6 +258,18 @@ class SqliteWorkflowRepository:
                 """,
                 (batch_id,),
             ).fetchall()
+            aligned = connection.execute(
+                """
+                SELECT case_id, side, evaluation_version, payload_json
+                FROM aligned_cases WHERE batch_id = ? ORDER BY case_id, side, evaluation_version
+                """,
+                (batch_id,),
+            ).fetchall()
+        aligned_payloads = [json.loads(row["payload_json"]) for row in aligned]
+        coverage: dict[str, int] = {}
+        for payload in aligned_payloads:
+            key = "+".join(sorted(payload.get("scores", {}).keys())) or "无"
+            coverage[key] = coverage.get(key, 0) + 1
         return {
             "import_id": batch["id"],
             "project_id": batch["project_id"],
@@ -199,6 +291,9 @@ class SqliteWorkflowRepository:
                 for row in files
             ],
             "issues": [dict(row) for row in issues],
+            "aligned": len(aligned_payloads),
+            "coverage": coverage,
+            "aligned_cases": aligned_payloads,
         }
 
     def upsert_candidate(self, candidate: NewCandidate) -> CandidateSnapshot:

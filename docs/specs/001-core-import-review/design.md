@@ -17,6 +17,8 @@
 
 领域层不得导入 FastAPI、`subprocess`、`wecom-cli` 或 LangGraph。现有 `importer.py` 的解析能力迁入输入适配器；现有 `pipeline.py` 的 `align()`、`judge()` 迁入领域服务；企微读写与行映射迁入 `WeComGateway`。旧 CLI 仅保留为开发/回归入口。
 
+成对 AB XLSX 使用独立的受控适配器：它选择 `详细配对结果` 工作表，按报告行拆出两条标准记录，写入 `source_label`、`prompt_stage`、`pair_row_number` 和 AB 汇总证据。当前冻结映射为 A=`HY-Vision-2.0-instruct`/优化后 Prompt，B=`quinta_gouwushenping_firstround`/优化前 Prompt。任何不同工作簿必须显式新增映射配置和测试，禁止依据文件名自动复用此映射。
+
 ## 模块边界
 
 ```text

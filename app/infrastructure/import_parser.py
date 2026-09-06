@@ -10,8 +10,11 @@ import zipfile
 import importer as legacy_importer
 
 from app.domain.imports import ImportValidationError, UploadedSource
+from app.domain.merge import PersistedSourceFile
 from app.domain.models import NewParseIssue, NewSourceFile
 from app.infrastructure.config import Settings
+from app.infrastructure.shopping_review_ab import PROFILE as SHOPPING_REVIEW_PROFILE
+from app.infrastructure.shopping_review_ab import ShoppingReviewPairedAdapter
 
 _ALLOWED_SUFFIXES = {".csv", ".tsv", ".xlsx"}
 _SAFE_FILENAME = re.compile(r"[^A-Za-z0-9._-]+")
@@ -61,6 +64,15 @@ class ImportParser:
         upload: UploadedSource,
         storage_path: Path,
     ) -> ParsedSource:
+        if upload.profile == SHOPPING_REVIEW_PROFILE:
+            return self._parse_shopping_review_artifact(
+                batch_id=batch_id,
+                project_id=project_id,
+                file_id=file_id,
+                suffix=suffix,
+                upload=upload,
+                storage_path=storage_path,
+            )
         try:
             headers, rows = legacy_importer.read_table(str(storage_path))
         except (OSError, UnicodeDecodeError, ValueError, zipfile.BadZipFile) as error:
@@ -96,7 +108,7 @@ class ImportParser:
                     )
                 )
 
-        summary = legacy_importer.summarize_schema(headers, schema, records)
+        summary = {"profile": upload.profile, **legacy_importer.summarize_schema(headers, schema, records)}
         source = NewSourceFile(
             id=file_id,
             batch_id=batch_id,
@@ -113,6 +125,65 @@ class ImportParser:
         )
         return ParsedSource(source_file=source, issues=issue_models)
 
+    def _parse_shopping_review_artifact(
+        self,
+        *,
+        batch_id: str,
+        project_id: str,
+        file_id: str,
+        suffix: str,
+        upload: UploadedSource,
+        storage_path: Path,
+    ) -> ParsedSource:
+        table = ShoppingReviewPairedAdapter().read_table(storage_path)
+        if len(table.rows) > self._settings.max_upload_rows:
+            raise ImportValidationError("uploaded file exceeds the configured row limit")
+        summary = ShoppingReviewPairedAdapter().summarize(table)
+        source = NewSourceFile(
+            id=file_id,
+            batch_id=batch_id,
+            project_id=project_id,
+            sha256=sha256(upload.content).hexdigest(),
+            source_type=suffix.lstrip("."),
+            side=upload.side.strip(),
+            evaluation_version=upload.evaluation_version.strip(),
+            original_name=Path(upload.filename).name,
+            storage_path=str(storage_path.relative_to(self._settings.artifacts_path)),
+            schema=summary,
+            rows_total=len(table.rows),
+            rows_parsed=int(summary["rows_parsed"]),
+        )
+        return ParsedSource(source_file=source, issues=[])
+
+    def load_persisted_records(self, storage_path: str) -> list[dict[str, object]]:
+        """Re-read a saved source without accepting arbitrary caller-controlled paths."""
+        candidate = self._artifact_path(storage_path)
+        try:
+            headers, rows = legacy_importer.read_table(str(candidate))
+        except (OSError, UnicodeDecodeError, ValueError, zipfile.BadZipFile) as error:
+            raise ImportValidationError(f"unable to re-read persisted source: {error}") from error
+        schema = legacy_importer.detect_schema(headers, rows)
+        if schema["id_col"] is None:
+            raise ImportValidationError("persisted source no longer has a case_id column")
+        return [
+            record
+            for record in legacy_importer.extract(headers, rows, schema)
+            if not record["case_id"].startswith("row#")
+        ]
+
+    def load_shopping_review_paired(
+        self, source: PersistedSourceFile
+    ) -> tuple[list, list[NewParseIssue]]:
+        candidate = self._artifact_path(source.storage_path)
+        return ShoppingReviewPairedAdapter().build_aligned_cases(source, candidate)
+
+    def _artifact_path(self, storage_path: str) -> Path:
+        candidate = (self._settings.artifacts_path / storage_path).resolve()
+        root = self._settings.artifacts_path.resolve()
+        if root not in candidate.parents or not candidate.is_file():
+            raise ImportValidationError("persisted source artifact is unavailable")
+        return candidate
+
     def _validate_metadata(self, upload: UploadedSource) -> str:
         filename = Path(upload.filename).name
         suffix = Path(filename).suffix.lower()
@@ -122,6 +193,10 @@ class ImportParser:
             raise ImportValidationError("side is required for every source file")
         if not upload.evaluation_version.strip():
             raise ImportValidationError("evaluation_version is required for every source file")
+        if upload.profile not in {"generic-v1", SHOPPING_REVIEW_PROFILE}:
+            raise ImportValidationError("unsupported source profile")
+        if upload.profile == SHOPPING_REVIEW_PROFILE and (suffix != ".xlsx" or upload.side.strip() != "PAIR"):
+            raise ImportValidationError("shopping review paired profile requires an .xlsx file with side=PAIR")
         return suffix
 
     def _validate_xlsx(self, content: bytes) -> None:

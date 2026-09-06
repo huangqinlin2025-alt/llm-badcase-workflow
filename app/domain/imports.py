@@ -12,3 +12,4 @@ class UploadedSource:
     content: bytes
     side: str
     evaluation_version: str
+    profile: str = "generic-v1"
