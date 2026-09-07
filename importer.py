@@ -42,21 +42,28 @@ def _hit(name, keys):
     return any(k in n for k in keys)
 
 
-def read_table(path):
-    """读本地 CSV / XLSX，返回 (headers, rows)。"""
+def read_table(path, sheet_name=None):
+    """读本地 CSV / XLSX，返回 (headers, rows)。XLSX 可选择工作表。"""
     ext = os.path.splitext(path)[1].lower()
     if ext in (".csv", ".txt", ".tsv"):
+        if sheet_name is not None:
+            raise ValueError("sheet_name is only supported for XLSX files")
         with open(path, encoding="utf-8-sig", newline="") as fh:
             delim = "\t" if ext == ".tsv" else ","
             rd = list(csv.reader(fh, delimiter=delim))
         return rd[0], rd[1:]
     if ext in (".xlsx", ".xlsm"):
-        return _read_xlsx(path)
+        return _read_xlsx(path, sheet_name)
     raise ValueError("unsupported file type: " + ext)
 
 
-def _read_xlsx(path):
-    """极简 xlsx 读取（无第三方依赖，直接解 zip + sharedStrings）。"""
+def read_xlsx_sheet(path, sheet_name):
+    """读取指定 XLSX 工作表，供受控来源适配器使用。"""
+    return _read_xlsx(path, sheet_name)
+
+
+def _read_xlsx(path, sheet_name=None):
+    """极简 XLSX 读取（无第三方依赖，支持按工作表名称选择）。"""
     import zipfile
     from xml.etree import ElementTree as ET
 
@@ -67,7 +74,7 @@ def _read_xlsx(path):
             root = ET.fromstring(z.read("xl/sharedStrings.xml"))
             for si in root.findall(NS + "si"):
                 shared.append("".join(t.text or "" for t in si.iter(NS + "t")))
-        name = next(n for n in z.namelist() if re.match(r"xl/worksheets/sheet1\.xml$", n))
+        name = _xlsx_sheet_path(z, ET, sheet_name)
         root = ET.fromstring(z.read(name))
         grid = []
         for row in root.iter(NS + "row"):
@@ -91,6 +98,35 @@ def _read_xlsx(path):
     cols = sorted({c for r in grid for c in r}, key=lambda s: (len(s), s))
     table = [[r.get(c, "") for c in cols] for r in grid]
     return table[0], table[1:]
+
+
+def _xlsx_sheet_path(archive, ET, sheet_name):
+    main_ns = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
+    rel_ns = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
+    package_rel_ns = "{http://schemas.openxmlformats.org/package/2006/relationships}"
+    workbook = ET.fromstring(archive.read("xl/workbook.xml"))
+    sheets = workbook.findall(main_ns + "sheets/" + main_ns + "sheet")
+    if not sheets:
+        raise ValueError("xlsx contains no worksheets")
+    selected = sheets[0] if sheet_name is None else next(
+        (sheet for sheet in sheets if sheet.get("name") == sheet_name),
+        None,
+    )
+    if selected is None:
+        raise ValueError("xlsx worksheet not found: " + str(sheet_name))
+    relation_id = selected.get(rel_ns + "id")
+    rels = ET.fromstring(archive.read("xl/_rels/workbook.xml.rels"))
+    target = next(
+        (
+            rel.get("Target")
+            for rel in rels.findall(package_rel_ns + "Relationship")
+            if rel.get("Id") == relation_id
+        ),
+        None,
+    )
+    if not target:
+        raise ValueError("xlsx worksheet relationship is missing")
+    return "xl/" + target.lstrip("/")
 
 
 def read_wecom_sheet(docid, sheet_id=None):
