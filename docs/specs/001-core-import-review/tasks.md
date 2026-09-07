@@ -13,7 +13,7 @@
 | `DATA-001` | SQLite schema、迁移、仓储和 Outbox | `ARC-001` | 3h | 迁移可重复执行，重启后数据保持，事务覆盖业务+Outbox |
 | `IMP-001` | 文件上传、来源校验、解析和行级报告 | `ARC-001` | 2h | CSV/TSV/XLSX 成功；非法输入不产生候选 |
 | `MERGE-001` | `case_id + side + evaluation_version` 精确合并 | `DATA-001`,`IMP-001` | 1.5h | 三路合并、覆盖不均、冲突报告均有测试 |
-| `RULE-001` | `core-v1` 规则服务和回归快照 | `MERGE-001` | 1.5h | 四类信号、阈值、证据、严重度与 Demo 基线一致 |
+| `RULE-001` | L1/L2/L3 分层规则服务、量表配置、差值证据与回归快照 | `MERGE-001`、`rule-redesign-l1-l3.md` 参数确认 | 待重估 | 层级、初判、分歧复核策略和 `PENDING_AGGREGATION` 可追溯；不再使用平铺四信号直接分级 |
 | `WECOM-001` | 企微预检、稳定键 upsert、Outbox 重试/对账 | `DATA-001`,`RULE-001` | 2h | 不再覆盖起始行；重复投影不增行 |
 | `REV-001` | 审核 API、乐观锁、大小库投影 | `WECOM-001` | 1.5h | 采纳/驳回闭环和部分失败补偿可验证 |
 | `UI-001` | 现有 HTML 调用 API、真实状态和 XSS 修复 | `IMP-001`,`REV-001` | 1h | 上传和审核为真实交互，无模拟成功信息 |
