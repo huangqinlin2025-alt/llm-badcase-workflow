@@ -125,6 +125,7 @@ class ShoppingReviewPairedAdapter:
                     }
                 },
                 "source_file_ids": [source.id],
+                "metric_profile": PROFILE,
                 "source_label": label,
                 "prompt_stage": stage,
                 "ab_evidence": evidence,

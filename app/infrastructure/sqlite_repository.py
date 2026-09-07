@@ -235,6 +235,36 @@ class SqliteWorkflowRepository:
             ).fetchone()
         return row["status"] if row else None
 
+    def set_import_batch_status(self, batch_id: str, status: str) -> None:
+        with self._transaction() as connection:
+            updated = connection.execute(
+                "UPDATE import_batches SET status = ?, updated_at = ? WHERE id = ?",
+                (status, _utc_now(), batch_id),
+            )
+            if updated.rowcount != 1:
+                raise LookupError("import batch not found")
+
+    def list_aligned_payloads(self, batch_id: str) -> list[dict[str, object]]:
+        with self._read_connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT payload_json FROM aligned_cases
+                WHERE batch_id = ? ORDER BY case_id, side, evaluation_version
+                """,
+                (batch_id,),
+            ).fetchall()
+        return [json.loads(row["payload_json"]) for row in rows]
+
+    def delete_pending_candidates(self, batch_id: str, rule_set_version: str) -> None:
+        with self._transaction() as connection:
+            connection.execute(
+                """
+                DELETE FROM candidates
+                WHERE batch_id = ? AND rule_set_version = ? AND review_status = ?
+                """,
+                (batch_id, rule_set_version, ReviewStatus.PENDING_REVIEW.value),
+            )
+
     def get_import_batch_report(self, batch_id: str) -> dict[str, object]:
         with self._read_connection() as connection:
             batch = connection.execute(
@@ -262,6 +292,13 @@ class SqliteWorkflowRepository:
                 """
                 SELECT case_id, side, evaluation_version, payload_json
                 FROM aligned_cases WHERE batch_id = ? ORDER BY case_id, side, evaluation_version
+                """,
+                (batch_id,),
+            ).fetchall()
+            candidates = connection.execute(
+                """
+                SELECT id, candidate_key, rule_set_version, scene, severity, review_status, version, evidence_json
+                FROM candidates WHERE batch_id = ? ORDER BY severity, candidate_key
                 """,
                 (batch_id,),
             ).fetchall()
@@ -294,6 +331,19 @@ class SqliteWorkflowRepository:
             "aligned": len(aligned_payloads),
             "coverage": coverage,
             "aligned_cases": aligned_payloads,
+            "candidates": [
+                {
+                    "id": row["id"],
+                    "candidate_key": row["candidate_key"],
+                    "rule_set_version": row["rule_set_version"],
+                    "scene": row["scene"],
+                    "severity": row["severity"],
+                    "review_status": row["review_status"],
+                    "version": row["version"],
+                    "evidence": json.loads(row["evidence_json"]),
+                }
+                for row in candidates
+            ],
         }
 
     def upsert_candidate(self, candidate: NewCandidate) -> CandidateSnapshot:

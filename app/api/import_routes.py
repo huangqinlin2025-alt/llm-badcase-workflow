@@ -3,6 +3,7 @@ from fastapi import APIRouter, File, Form, Header, HTTPException, UploadFile, st
 
 from app.application.import_service import ImportService
 from app.application.merge_service import MergeService
+from app.application.rule_service import RuleService
 from app.domain.imports import ImportValidationError, UploadedSource
 from app.domain.merge import MergeValidationError
 from app.infrastructure.container import get_repository, get_settings
@@ -84,6 +85,23 @@ def merge_import_batch(
     except LookupError as error:
         raise HTTPException(status_code=404, detail="import batch not found") from error
     except MergeValidationError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@router.post("/import-batches/{batch_id}/evaluate")
+def evaluate_import_batch(
+    batch_id: str,
+    authorization: str | None = Header(default=None),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+) -> dict[str, object]:
+    settings = get_settings()
+    _require_token(settings.import_token, authorization)
+    _require_idempotency_key(idempotency_key)
+    try:
+        return RuleService(get_repository(settings)).evaluate_batch(batch_id)
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail="import batch not found") from error
+    except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
 
 

@@ -59,6 +59,16 @@
 - 语义核验：A=`HY-Vision-2.0-instruct`/优化后 Prompt，B=`quinta_gouwushenping_firstround`/优化前 Prompt。
 - 自动化结果：16 项测试通过，覆盖表头映射、A/B 拆分、5 维分数与 AB 证据。
 
+## RULE-001 验收记录
+
+- 状态：通过
+- 分支：`feat/rule-001-layered-rules`
+- 验证命令：`/Users/huagnqinlin/.workbuddy/binaries/python/versions/3.13.12/bin/python3 -W error::ResourceWarning -m unittest discover -s tests -v`
+- 自动化结果：20 项测试通过，覆盖 L1 优先、L2 候选-基准差值、L3 相对劣化与 6.8 优秀线、规则候选持久化和现有导入/合并回归。
+- 真实输入验收：购物神评成对 AB 报告在临时 SQLite 中完成 149 个配对单元、298 条对齐记录和规则评估，生成 145 条候选：L1/P0 24 条、L2/P1 58 条、L3/P2 63 条；该报告未提供机检硬规则，因此 24 条 L1 均标记为 `LLM_FALLBACK`，必须 100% 人工事实复核；未写企微或项目运行数据。
+- 已实现：`layered-v1` 规则版本、L1/L2/L3 最高层级优先、A 优化后对 B 优化前差值、L3 分层离群、评测分歧证据、`PENDING_AGGREGATION`、候选 SQLite 持久化和 `/api/v1/import-batches/{id}/evaluate` 接口。
+- 已知限制：L1 当前仅以 LLM 低分生成复核候选，尚未接入硬规则明细；S/A/B 最终等级所需的跨批次复现率和错误占比聚合任务仍未实现。
+
 ## 实现验收清单
 
 - [x] 服务与健康检查可运行。

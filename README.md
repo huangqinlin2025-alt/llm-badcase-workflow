@@ -100,6 +100,15 @@ curl -X POST http://127.0.0.1:8000/api/v1/import-batches/<import_id>/merge \
 
 合并键固定为 `case_id + side + evaluation_version`。人工、LLM、机检分数可分别来自不同文件；同一评分方分数或非空文本冲突会生成 `MERGE_CONFLICT`，并使对应 case 不进入对齐结果。
 
+合并完成后可运行已冻结的 L1/L2/L3 规则初判：
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/import-batches/<import_id>/evaluate \
+  -H 'Idempotency-Key: local-evaluate-0001'
+```
+
+该接口生成候选、层级、复核策略和 `PENDING_AGGREGATION` 状态，但不会自动写企微。L1 候选需全量人工事实复核；L2 和 L3 分别按 50% 与 10%–20% 抽样复核。
+
 已支持受控的“购物神评成对 AB 报告”适配器。上传时使用 `side=PAIR` 和 `source_profiles=shopping-review-paired-ab-v1`，并在同一请求中显式给出 `evaluation_version`。适配器固定读取 `详细配对结果`，将 `HY-Vision-2.0-instruct` 映射为 A/优化后 Prompt、`quinta_gouwushenping_firstround` 映射为 B/优化前 Prompt；其他工作簿不可自动复用该映射。
 
 请将 `.env.example` 复制为本地 `.env` 后再填入后续企微配置；不要提交真实令牌、文档 ID、SQLite 数据库或用户数据。
